@@ -3,89 +3,81 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ProximityPromptService = game:GetService("ProximityPromptService")
 
 local GameConfig = require(ReplicatedStorage:WaitForChild("GameConfig"))
 
--- Create a simple RemoteEvent for feedback
-local remotes = Instance.new("Folder")
-remotes.Name = "Remotes"
-remotes.Parent = ReplicatedStorage
+local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+if not remotes then
+	remotes = Instance.new("Folder")
+	remotes.Name = "Remotes"
+	remotes.Parent = ReplicatedStorage
+end
 
-local TrainError = Instance.new("RemoteEvent")
+local TrainError = remotes:FindFirstChild("TrainError") or Instance.new("RemoteEvent")
 TrainError.Name = "TrainError"
 TrainError.Parent = remotes
-
-local function getBarConfig(barName)
-	return GameConfig.PullUpBars[barName]
-end
 
 local function startTraining(player, bar)
 	local stats = player:FindFirstChild("leaderstats")
 	local data = player:FindFirstChild("Data")
 	if not stats or not data then return end
 
-	local rebirths = stats.Rebirths.Value
-	local config = getBarConfig(bar.Name)
-
+	local config = GameConfig.PullUpBars[bar.Name]
 	if not config then return end
 
-	if rebirths < config.RequiredRebirths then
-		TrainError:FireClient(player, "You need " .. config.RequiredRebirths .. " Rebirths to use this bar!")
+	if stats.Rebirths.Value < config.RequiredRebirths then
+		TrainError:FireClient(player, "Need " .. config.RequiredRebirths .. " Rebirths for this bar!")
 		return
 	end
 
 	if data.IsTraining.Value then return end
 	data.IsTraining.Value = true
 
-	-- Training loop
 	task.spawn(function()
 		while data.IsTraining.Value and player.Parent do
-			local multi = stats.Multiplier.Value * config.Multiplier
+			local multi = (stats.Multiplier.Value or 1) * (config.Multiplier or 1)
 			stats.Strength.Value += math.floor(GameConfig.BaseStrengthPerTick * multi)
 			stats.XP.Value += 1
-
-			-- Simple level up
-			if stats.XP.Value >= GameConfig.XPPerLevel then
+			if stats.XP.Value >= (GameConfig.XPPerLevel or 100) then
 				stats.XP.Value = 0
 				stats.Level.Value += 1
 			end
-
-			task.wait(GameConfig.TrainInterval)
+			task.wait(GameConfig.TrainInterval or 0.35)
 		end
 	end)
 end
 
 local function stopTraining(player)
 	local data = player:FindFirstChild("Data")
-	if data then
-		data.IsTraining.Value = false
-	end
+	if data then data.IsTraining.Value = false end
 end
 
--- Setup ProximityPrompts on all pull-up bars
+local function attachPrompt(bar, config)
+	local prompt = bar:FindFirstChildOfClass("ProximityPrompt")
+	if not prompt then
+		prompt = Instance.new("ProximityPrompt")
+		prompt.Parent = bar
+	end
+	prompt.ActionText = "Train"
+	prompt.ObjectText = (config.DisplayName or bar.Name) .. " (" .. config.RequiredRebirths .. "+ Rebirths)"
+	prompt.HoldDuration = 0.25
+	prompt.MaxActivationDistance = 12
+	prompt.RequiresLineOfSight = false
+
+	prompt.Triggered:Connect(function(player)
+		startTraining(player, bar)
+	end)
+end
+
 local function setupBars()
 	for barName, config in pairs(GameConfig.PullUpBars) do
 		local bar = workspace:FindFirstChild(barName, true)
-		if bar and bar:IsA("BasePart") then
-			local prompt = bar:FindFirstChildOfClass("ProximityPrompt")
-			if not prompt then
-				prompt = Instance.new("ProximityPrompt")
-				prompt.ActionText = "Train (Hold E)"
-				prompt.ObjectText = "Pull Up Bar (Req: " .. config.RequiredRebirths .. " Rebirths)"
-				prompt.HoldDuration = 0.3
-				prompt.MaxActivationDistance = 10
-				prompt.Parent = bar
-			end
-
-			prompt.Triggered:Connect(function(player)
-				startTraining(player, bar)
-			end)
+		if bar then
+			attachPrompt(bar, config)
 		end
 	end
 end
 
--- Jump to stop training
 Players.PlayerAdded:Connect(function(player)
 	player.CharacterAdded:Connect(function(char)
 		local humanoid = char:WaitForChild("Humanoid")
@@ -95,12 +87,32 @@ Players.PlayerAdded:Connect(function(player)
 			end
 		end)
 	end)
+	if player.Character then
+		local humanoid = player.Character:FindFirstChild("Humanoid")
+		if humanoid then
+			humanoid.StateChanged:Connect(function(_, newState)
+				if newState == Enum.HumanoidStateType.Jumping then
+					stopTraining(player)
+				end
+			end)
+		end
+	end
 end
 
--- Also stop when they die or leave
-Players.PlayerRemoving:Connect(stopTraining)
+for _, p in ipairs(Players:GetPlayers()) do
+	if p.Character then
+		local humanoid = p.Character:FindFirstChild("Humanoid")
+		if humanoid then
+			humanoid.StateChanged:Connect(function(_, newState)
+				if newState == Enum.HumanoidStateType.Jumping then
+					stopTraining(p)
+				end
+			end)
+		end
+	end
+end
 
-task.wait(1)
+task.wait(1.5)
 setupBars()
 
 print("[+1 Strength Escape] TrainingSystem loaded")

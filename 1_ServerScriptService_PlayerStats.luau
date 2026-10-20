@@ -4,6 +4,8 @@
 local Players = game:GetService("Players")
 
 local function setupPlayer(player)
+	if player:FindFirstChild("leaderstats") then return end
+
 	local leaderstats = Instance.new("Folder")
 	leaderstats.Name = "leaderstats"
 	leaderstats.Parent = player
@@ -38,7 +40,6 @@ local function setupPlayer(player)
 	XP.Value = 0
 	XP.Parent = leaderstats
 
-	-- Extra values that don't show on leaderboard
 	local data = Instance.new("Folder")
 	data.Name = "Data"
 	data.Parent = player
@@ -47,6 +48,11 @@ local function setupPlayer(player)
 	Training.Name = "IsTraining"
 	Training.Value = false
 	Training.Parent = data
+
+	local Stage = Instance.new("IntValue")
+	Stage.Name = "Stage"
+	Stage.Value = 1
+	Stage.Parent = data
 
 	print("[Stats] Setup complete for " .. player.Name)
 end
